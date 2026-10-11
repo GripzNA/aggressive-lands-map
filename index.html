@@ -30,17 +30,24 @@
   #layout{flex:1;display:flex;min-height:0;position:relative}
   #map{flex:1;min-width:0;background:#0d1117}
   body.light #map{background:#dfe5ec}
-  aside{width:290px;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:900}
+  aside{width:300px;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:900}
   .side-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
   .search-row{display:flex;gap:6px}
   #search{flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:14px}
   .row-btns{display:flex;gap:6px}
   .row-btns .btn{flex:1}
   #count-line{font-size:12px;color:var(--muted)}
-  #cat-list{flex:1;overflow-y:auto;padding:6px 0}
-  .cat{display:flex;align-items:center;gap:9px;padding:7px 12px;cursor:pointer;font-size:14px;user-select:none}
+  #cat-list{flex:1;overflow-y:auto;padding:4px 0 12px}
+  .ghead{display:flex;align-items:center;gap:8px;padding:9px 12px 7px;cursor:pointer;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);user-select:none}
+  .ghead:hover{color:var(--text)}
+  .ghead .arrow{display:inline-block;transition:transform .15s;font-size:10px}
+  .ghead.closed .arrow{transform:rotate(-90deg)}
+  .ghead .gtotal{margin-left:auto;font-weight:400;font-size:12px}
+  .gitems{padding:0 0 4px}
+  .ghead.closed + .gitems{display:none}
+  .cat{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 26px;cursor:pointer;font-size:14px;user-select:none}
   .cat:hover{background:var(--panel2)}
-  .cat input{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
+  .cat input{accent-color:var(--accent);width:16px;height:16px;cursor:pointer;flex:none}
   .cdot{width:11px;height:11px;border-radius:50%;flex:none}
   .cat .lbl{flex:1}
   .cat .n{color:var(--muted);font-size:12px}
@@ -49,6 +56,7 @@
   .leaflet-popup-content{font-size:13px;line-height:1.45;min-width:150px}
   .leaflet-popup-content .p-title{font-weight:700;margin-bottom:2px;display:flex;align-items:center;gap:7px}
   .leaflet-popup-content .p-title img{width:22px;height:22px}
+  .leaflet-popup-content .p-sub{color:#888;font-size:11px}
   .leaflet-popup-content .p-raw{color:#777;font-size:11px;word-break:break-all}
   .leaflet-popup-content .p-co{color:#777;font-size:11px;margin-top:3px}
   @media (max-width:760px){
@@ -101,14 +109,90 @@ const LAYERS = {
                  bounds:[[-58013.3,202424.2],[-24413.3,235424.2]] }
 };
 
+/* Category headers, in display order. */
+const HEADERS = [
+  { id:"ore",        label:"Ores & Essence",      color:"#ffb74d" },
+  { id:"anima",      label:"Anima",               color:"#b388ff" },
+  { id:"monster",    label:"Monster Spawns",      color:"#e57373" },
+  { id:"stone",      label:"Stone & Minerals",    color:"#a1887f" },
+  { id:"gather",     label:"Gatherables",         color:"#9ccc65" },
+  { id:"chest",      label:"Chests",              color:"#ffd54f" },
+  { id:"fishing",    label:"Fishing Spots",       color:"#4db6ac" },
+  { id:"lore",       label:"Lore",                color:"#f06292" },
+  { id:"teleporter", label:"Portals & Entrances", color:"#ba68c8" },
+  { id:"shrine",     label:"Shrines & Altars",    color:"#ff8a65" },
+  { id:"lodestone",  label:"Lodestones",          color:"#4fc3f7" },
+  { id:"agility",    label:"Agility & Kebbit",    color:"#aed581" },
+  { id:"geyser",     label:"Essence Geysers",     color:"#80deea" },
+  { id:"npc",        label:"NPCs & Quests",       color:"#64b5f6" },
+  { id:"respawn",    label:"Respawn & Beds",      color:"#81c784" },
+  { id:"grave",      label:"Gravestones",         color:"#e57373" },
+];
+const HEADER_BY_ID = Object.fromEntries(HEADERS.map(h=>[h.id,h]));
+
+/* Resource spawners were misclassified as monster spawns; map each to its real group. */
+const SPAWNER_TARGET = { Stone:"ore", Onion:"gather", Salvage:"gather", Flax:"gather",
+  "Swamp Weed":"gather", "Ash Logs":"gather", Toadflax:"gather", Snapdragon:"gather", Bone:"gather" };
+
+const ORE_LABELS = { Copper:"Copper Ore", Tin:"Tin Ore", Iron:"Iron Ore", Coal:"Coal",
+  Silver:"Silver Ore", Gold:"Gold Ore", Mithril:"Mithril Ore", Adamantite:"Adamantite Ore",
+  Runite:"Runite Ore", Blurite:"Blurite Ore", "Rune Essence":"Rune Essence", Stone:"Stone",
+  Sandstone:"Sandstone", Limestone:"Limestone", Gypsum:"Gypsum", Clay:"Clay" };
+const ANIMA_LABELS = { Fire:"Fire Anima", Water:"Water Anima", Air:"Air Anima", Earth:"Earth Anima",
+  Nature:"Nature Anima", Astral:"Astral Anima", Law:"Law Anima", "Anima-Infused Bark":"Anima-Infused Bark" };
+
+function prettyMonster(cls){
+  let m = cls.match(/^BP_SpawnPoint_(.+?)(_C)?$/);
+  let name = m ? m[1] : cls;
+  name = name.replace(/_\d+$/,"").replace(/_/g," ").replace(/([a-z0-9])([A-Z])/g,"$1 $2");
+  return name.replace(/\s+/g," ").trim();
+}
+function itemLabel(cat, sub){
+  if(cat==="ore") return ORE_LABELS[sub] || sub;
+  if(cat==="anima") return ANIMA_LABELS[sub] || (sub==="Other" ? "Unknown Anima" : sub);
+  if(sub==="Other") return OTHER_LABELS[cat] || "Other";
+  return sub;
+}
+/* Categories where the subcategory is noise: one group with a fixed label. */
+const SINGLE_GROUP = { npc:"NPC / Quest Object", lore:"Lore",
+  teleporter:"Portal / Entrance", lodestone:"Lodestone" };
+const OTHER_LABELS = { gather:"Gatherable", chest:"Chest", fishing:"Fishing Spot",
+  shrine:"Shrine / Altar", agility:"Agility Course", stone:"Other", ore:"Other",
+  anima:"Other", respawn:"Bed", grave:"Gravestone", monster:"Other" };
+/* Assign every POI to a specific filter group: {h (header id), gkey, label}. */
+function groupOf(p){
+  if(p.c==="spawn"){                       // resource spawner -> real resource group
+    const sub = p.s || "Other";
+    const cat = SPAWNER_TARGET[sub] || "gather";
+    return { h:cat, gkey:cat+"::"+sub, label:itemLabel(cat,sub) };
+  }
+  if(p.c==="respawn"){
+    if(p.n.includes("SpawnPoint")){
+      const name = prettyMonster(p.n);
+      return { h:"monster", gkey:"monster::"+name, label:name };
+    }
+    if((p.s||"")==="Graveyard") return { h:"grave", gkey:"grave::Graveyard", label:"Graveyard" };
+    return { h:"respawn", gkey:"respawn::"+(p.s||"Other"), label:p.s||"Bed" };
+  }
+  const sub = p.s || "Other";
+  if(SINGLE_GROUP[p.c]) return { h:p.c, gkey:p.c+"::x", label:SINGLE_GROUP[p.c] };
+  return { h:p.c, gkey:p.c+"::"+sub, label:itemLabel(p.c,sub) };
+}
+
 const map = L.map("map", { crs:L.CRS.Simple, renderer:L.canvas(), zoomControl:true,
                            attributionControl:false, minZoom:-10, maxZoom:3 });
 let overlay = null, currentLayer = "overworld";
-let POIS = [], CATS = [];
-let catGroups = {};          // catId -> L.layerGroup
-let visibleCats = new Set(); // catIds currently enabled
+let POIS = [];
+let groupLayers = {};        // gkey -> L.layerGroup
+let visibleGroups = new Set();
+let collapsed = new Set(["monster"]);  // monster list is huge; start collapsed
 let searchText = "";
 
+function inBounds(p){
+  const b = LAYERS[currentLayer].bounds;
+  const lat = -p.y, lng = p.x;
+  return lat>=b[0][0] && lat<=b[1][0] && lng>=b[0][1] && lng<=b[1][1];
+}
 function setLayer(name){
   currentLayer = name;
   document.querySelectorAll(".layer-btn").forEach(b=>b.classList.toggle("active", b.dataset.layer===name));
@@ -119,66 +203,98 @@ function setLayer(name){
   buildFilterPanel();
   rebuildMarkers();
 }
-function popupHtml(p, cat){
+function popupHtml(p, g){
   const icon = p.i ? `<img src="assets/icons/${p.i}.png" alt="" onerror="this.style.display='none'">` : "";
-  const title = p.s || cat.label;
-  return `<div class="p-title">${icon}<span>${escapeHtml(title)}</span></div>`+
+  const h = HEADER_BY_ID[g.h];
+  return `<div class="p-title">${icon}<span>${escapeHtml(g.label)}</span></div>`+
+         (h ? `<div class="p-sub">${escapeHtml(h.label)}</div>` : "")+
          `<div class="p-raw">${escapeHtml(p.n||"")}</div>`+
          `<div class="p-co">${(p.x/100).toFixed(1)}, ${(p.y/100).toFixed(1)} m</div>`;
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function matches(p, cat){
+function matches(p, g){
   if(!searchText) return true;
-  const hay = ((p.s||"")+" "+(p.n||"")+" "+cat.label).toLowerCase();
+  const h = HEADER_BY_ID[g.h];
+  const hay = (g.label+" "+(p.s||"")+" "+(p.n||"")+" "+(h?h.label:"")).toLowerCase();
   return hay.includes(searchText);
 }
-/* The game places vault/dungeon interiors far outside the main landmass in
-   world coordinates. Only markers inside the current map image are shown. */
-function inBounds(p){
-  const b = LAYERS[currentLayer].bounds; // [[latMin,lngMin],[latMax,lngMax]], lat=-y lng=x
-  const lat = -p.y, lng = p.x;
-  return lat>=b[0][0] && lat<=b[1][0] && lng>=b[0][1] && lng<=b[1][1];
-}
-function layerCount(catId){
-  let n=0;
-  for(const p of POIS) if(p.l===currentLayer && p.c===catId && inBounds(p)) n++;
-  return n;
+/* Groups present on the current layer (in-bounds), with live counts. */
+function layerGroups(){
+  const groups = new Map(); // gkey -> {h,label,count}
+  for(const p of POIS){
+    if(p.l!==currentLayer || !inBounds(p)) continue;
+    const g = groupOf(p);
+    let e = groups.get(g.gkey);
+    if(!e){ e = { h:g.h, label:g.label, count:0 }; groups.set(g.gkey, e); }
+    e.count++;
+  }
+  return groups;
 }
 function rebuildMarkers(){
+  const groups = layerGroups();
   let shown = 0;
-  for(const cat of CATS){
-    let g = catGroups[cat.id];
-    if(g){ g.clearLayers(); map.removeLayer(g); }
-    g = L.layerGroup(); catGroups[cat.id] = g;
-    if(visibleCats.has(cat.id)){
+  for(const [gkey, g] of groups){
+    let lg = groupLayers[gkey];
+    if(lg){ lg.clearLayers(); map.removeLayer(lg); }
+    lg = L.layerGroup(); groupLayers[gkey] = lg;
+    if(visibleGroups.has(gkey)){
+      const h = HEADER_BY_ID[g.h];
       for(const p of POIS){
-        if(p.l!==currentLayer || p.c!==cat.id || !inBounds(p) || !matches(p,cat)) continue;
-        L.circleMarker([-p.y, p.x], { radius:5, weight:1, color:cat.color,
-            fillColor:cat.color, fillOpacity:0.75 })
-          .bindPopup(popupHtml(p,cat)).addTo(g);
+        if(p.l!==currentLayer || !inBounds(p)) continue;
+        const pg = groupOf(p);
+        if(pg.gkey!==gkey || !matches(p, pg)) continue;
+        L.circleMarker([-p.y, p.x], { radius:5, weight:1, color:h.color,
+            fillColor:h.color, fillOpacity:0.75 })
+          .bindPopup(popupHtml(p, pg)).addTo(lg);
         shown++;
       }
-      g.addTo(map);
+      lg.addTo(map);
     }
   }
+  // drop layerGroups for groups no longer present
+  for(const k of Object.keys(groupLayers)) if(!groups.has(k)){ map.removeLayer(groupLayers[k]); delete groupLayers[k]; }
   document.getElementById("count-line").textContent =
     shown.toLocaleString()+" locations shown · "+LAYERS[currentLayer].label;
 }
 function buildFilterPanel(){
+  const groups = layerGroups();
+  // organize under headers, items sorted by count desc
+  const byHeader = new Map();
+  for(const [gkey, g] of groups){
+    if(!byHeader.has(g.h)) byHeader.set(g.h, []);
+    byHeader.get(g.h).push({ gkey, ...g });
+  }
+  for(const items of byHeader.values()) items.sort((a,b)=>b.count-a.count);
   const list = document.getElementById("cat-list");
   list.innerHTML = "";
-  for(const cat of CATS){
-    const n = layerCount(cat.id);
-    const row = document.createElement("label");
-    row.className = "cat";
-    row.innerHTML = `<input type="checkbox" ${visibleCats.has(cat.id)?"checked":""}>`+
-      `<span class="cdot" style="background:${cat.color}"></span>`+
-      `<span class="lbl">${escapeHtml(cat.label)}</span><span class="n">${n.toLocaleString()}</span>`;
-    row.querySelector("input").addEventListener("change", e=>{
-      e.target.checked ? visibleCats.add(cat.id) : visibleCats.delete(cat.id);
-      rebuildMarkers();
+  for(const h of HEADERS){
+    const items = byHeader.get(h.id);
+    if(!items || !items.length) continue;
+    const total = items.reduce((s,i)=>s+i.count,0);
+    const isClosed = collapsed.has(h.id);
+    const head = document.createElement("div");
+    head.className = "ghead"+(isClosed?" closed":"");
+    head.innerHTML = `<span class="arrow">▼</span><span class="cdot" style="background:${h.color}"></span>`+
+      `<span>${escapeHtml(h.label)}</span><span class="gtotal">${total.toLocaleString()}</span>`;
+    head.addEventListener("click", ()=>{
+      collapsed.has(h.id) ? collapsed.delete(h.id) : collapsed.add(h.id);
+      head.classList.toggle("closed");
     });
-    list.appendChild(row);
+    list.appendChild(head);
+    const wrap = document.createElement("div");
+    wrap.className = "gitems";
+    for(const it of items){
+      const row = document.createElement("label");
+      row.className = "cat";
+      row.innerHTML = `<input type="checkbox" ${visibleGroups.has(it.gkey)?"checked":""}>`+
+        `<span class="lbl">${escapeHtml(it.label)}</span><span class="n">${it.count.toLocaleString()}</span>`;
+      row.querySelector("input").addEventListener("change", e=>{
+        e.target.checked ? visibleGroups.add(it.gkey) : visibleGroups.delete(it.gkey);
+        rebuildMarkers();
+      });
+      wrap.appendChild(row);
+    }
+    list.appendChild(wrap);
   }
 }
 
@@ -210,20 +326,24 @@ document.querySelectorAll(".layer-btn").forEach(b=>b.addEventListener("click", (
 document.getElementById("fit").addEventListener("click", ()=>map.fitBounds(LAYERS[currentLayer].bounds));
 document.getElementById("theme").addEventListener("click", ()=>document.body.classList.toggle("light"));
 document.getElementById("drawer-toggle").addEventListener("click", ()=>document.getElementById("side").classList.toggle("open"));
-document.getElementById("show-all").addEventListener("click", ()=>{ CATS.forEach(c=>visibleCats.add(c.id)); buildFilterPanel(); rebuildMarkers(); });
-document.getElementById("hide-all").addEventListener("click", ()=>{ visibleCats.clear(); buildFilterPanel(); rebuildMarkers(); });
+document.getElementById("show-all").addEventListener("click", ()=>{
+  for(const k of layerGroups().keys()) visibleGroups.add(k);
+  buildFilterPanel(); rebuildMarkers();
+});
+document.getElementById("hide-all").addEventListener("click", ()=>{
+  visibleGroups.clear(); buildFilterPanel(); rebuildMarkers();
+});
 let searchTimer=null;
 document.getElementById("search").addEventListener("input", e=>{
   clearTimeout(searchTimer);
   searchTimer=setTimeout(()=>{ searchText=e.target.value.trim().toLowerCase(); rebuildMarkers(); },250);
 });
 
-Promise.all([
-  fetch("data/categories.json").then(r=>r.json()),
-  fetch("data/pois.json").then(r=>r.json())
-]).then(([cats, pois])=>{
-  CATS = cats; POIS = pois;
-  CATS.forEach(c=>visibleCats.add(c.id));
+fetch("data/pois.json").then(r=>r.json()).then(pois=>{
+  POIS = pois;
+  // default: every group visible
+  const seen = new Set();
+  for(const p of POIS){ const g = groupOf(p); if(!seen.has(g.gkey)){ seen.add(g.gkey); visibleGroups.add(g.gkey); } }
   setLayer("overworld");
 }).catch(err=>{
   document.getElementById("count-line").textContent = "Failed to load map data.";
