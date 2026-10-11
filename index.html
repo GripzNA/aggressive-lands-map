@@ -86,7 +86,7 @@
     <div id="cat-list"></div>
   </aside>
 </div>
-<footer>Map data datamined from game files via RSDragonwilds-LiveMap (MIT). Fan-made, not affiliated with Jagex.</footer>
+<footer>Map data datamined from game files via RSDragonwilds-LiveMap (MIT). Fan-made, not affiliated with Jagex. Only locations within the mapped area are shown — vault/dungeon interiors sit outside the map in the game data.</footer>
 <script src="assets/leaflet.js"></script>
 <script>
 "use strict";
@@ -116,6 +116,7 @@ function setLayer(name){
   const L_ = LAYERS[name];
   overlay = L.imageOverlay(L_.img, L_.bounds).addTo(map);
   map.fitBounds(L_.bounds);
+  buildFilterPanel();
   rebuildMarkers();
 }
 function popupHtml(p, cat){
@@ -131,6 +132,18 @@ function matches(p, cat){
   const hay = ((p.s||"")+" "+(p.n||"")+" "+cat.label).toLowerCase();
   return hay.includes(searchText);
 }
+/* The game places vault/dungeon interiors far outside the main landmass in
+   world coordinates. Only markers inside the current map image are shown. */
+function inBounds(p){
+  const b = LAYERS[currentLayer].bounds; // [[latMin,lngMin],[latMax,lngMax]], lat=-y lng=x
+  const lat = -p.y, lng = p.x;
+  return lat>=b[0][0] && lat<=b[1][0] && lng>=b[0][1] && lng<=b[1][1];
+}
+function layerCount(catId){
+  let n=0;
+  for(const p of POIS) if(p.l===currentLayer && p.c===catId && inBounds(p)) n++;
+  return n;
+}
 function rebuildMarkers(){
   let shown = 0;
   for(const cat of CATS){
@@ -139,7 +152,7 @@ function rebuildMarkers(){
     g = L.layerGroup(); catGroups[cat.id] = g;
     if(visibleCats.has(cat.id)){
       for(const p of POIS){
-        if(p.l!==currentLayer || p.c!==cat.id || !matches(p,cat)) continue;
+        if(p.l!==currentLayer || p.c!==cat.id || !inBounds(p) || !matches(p,cat)) continue;
         L.circleMarker([-p.y, p.x], { radius:5, weight:1, color:cat.color,
             fillColor:cat.color, fillOpacity:0.75 })
           .bindPopup(popupHtml(p,cat)).addTo(g);
@@ -155,11 +168,12 @@ function buildFilterPanel(){
   const list = document.getElementById("cat-list");
   list.innerHTML = "";
   for(const cat of CATS){
+    const n = layerCount(cat.id);
     const row = document.createElement("label");
     row.className = "cat";
     row.innerHTML = `<input type="checkbox" ${visibleCats.has(cat.id)?"checked":""}>`+
       `<span class="cdot" style="background:${cat.color}"></span>`+
-      `<span class="lbl">${escapeHtml(cat.label)}</span><span class="n">${cat.count}</span>`;
+      `<span class="lbl">${escapeHtml(cat.label)}</span><span class="n">${n.toLocaleString()}</span>`;
     row.querySelector("input").addEventListener("change", e=>{
       e.target.checked ? visibleCats.add(cat.id) : visibleCats.delete(cat.id);
       rebuildMarkers();
@@ -210,7 +224,6 @@ Promise.all([
 ]).then(([cats, pois])=>{
   CATS = cats; POIS = pois;
   CATS.forEach(c=>visibleCats.add(c.id));
-  buildFilterPanel();
   setLayer("overworld");
 }).catch(err=>{
   document.getElementById("count-line").textContent = "Failed to load map data.";
