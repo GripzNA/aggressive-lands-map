@@ -45,6 +45,7 @@
   .ghead .arrow{display:inline-block;transition:transform .15s;font-size:10px}
   .ghead.closed .arrow{transform:rotate(-90deg)}
   .ghead .gtotal{margin-left:auto;font-weight:400;font-size:12px}
+  .ghead .gcheck{accent-color:var(--accent);width:15px;height:15px;cursor:pointer;flex:none;margin:0}
   .gitems{padding:0 0 4px}
   .ghead.closed + .gitems{display:none}
   .cat{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 26px;cursor:pointer;font-size:14px;user-select:none}
@@ -382,8 +383,21 @@ function buildFilterPanel(){
     const isClosed = filterSearch ? false : collapsed.has(h.id);
     const head = document.createElement("div");
     head.className = "ghead"+(isClosed?" closed":"");
+    const visCount = items.filter(it=>visibleGroups.has(it.gkey)).length;
     head.innerHTML = `<span class="arrow">▼</span><span class="cdot" style="background:${h.color}"></span>`+
-      `<span>${escapeHtml(h.label)}</span><span class="gtotal">${total.toLocaleString()}</span>`;
+      `<span>${escapeHtml(h.label)}</span>`+
+      `<input type="checkbox" class="gcheck" title="Toggle all ${escapeHtml(h.label)}">`+
+      `<span class="gtotal">${total.toLocaleString()}</span>`;
+    const gcheck = head.querySelector(".gcheck");
+    gcheck.checked = visCount===items.length;
+    gcheck.indeterminate = visCount>0 && visCount<items.length;
+    gcheck.addEventListener("click", e=>e.stopPropagation());
+    gcheck.addEventListener("change", e=>{
+      for(const it of items){
+        e.target.checked ? visibleGroups.add(it.gkey) : visibleGroups.delete(it.gkey);
+      }
+      buildFilterPanel(); rebuildMarkers();
+    });
     head.addEventListener("click", ()=>{
       collapsed.has(h.id) ? collapsed.delete(h.id) : collapsed.add(h.id);
       head.classList.toggle("closed");
