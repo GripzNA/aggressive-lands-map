@@ -33,7 +33,7 @@
   aside{width:300px;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:900}
   .side-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
   .search-row{display:flex;gap:6px}
-  #search{flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:14px}
+  #search,#filter-search{flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:14px;min-width:0}
   .row-btns{display:flex;gap:6px}
   .row-btns .btn{flex:1}
   #count-line{font-size:12px;color:var(--muted)}
@@ -115,35 +115,29 @@ const LAYERS = {
                  bounds:[[-58013.3,202424.2],[-24413.3,235424.2]] }
 };
 
-/* Category headers, in display order. */
+/* Filter groups, Map-Genie-style organization. Markers keep their own colors. */
 const HEADERS = [
-  { id:"ore",        label:"Ores & Essence",      color:"#ffb74d" },
-  { id:"anima",      label:"Anima",               color:"#b388ff" },
-  { id:"monster",    label:"Monster Spawns",      color:"#e57373" },
-  { id:"stone",      label:"Stone & Minerals",    color:"#a1887f" },
-  { id:"gather",     label:"Gatherables",         color:"#9ccc65" },
-  { id:"chest",      label:"Chests",              color:"#ffd54f" },
-  { id:"fishing",    label:"Fishing Spots",       color:"#4db6ac" },
-  { id:"lore",       label:"Lore",                color:"#f06292" },
-  { id:"teleporter", label:"Portals & Entrances", color:"#ba68c8" },
-  { id:"shrine",     label:"Shrines & Altars",    color:"#ff8a65" },
-  { id:"lodestone",  label:"Lodestones",          color:"#4fc3f7" },
-  { id:"agility",    label:"Agility & Kebbit",    color:"#aed581" },
-  { id:"geyser",     label:"Essence Geysers",     color:"#80deea" },
-  { id:"npc",        label:"NPCs & Quests",       color:"#64b5f6" },
-  { id:"respawn",    label:"Respawn & Beds",      color:"#81c784" },
-  { id:"grave",      label:"Gravestones",         color:"#e57373" },
+  { id:"locations",    label:"Locations",    color:"#4fc3f7" },
+  { id:"collectibles", label:"Collectibles", color:"#f06292" },
+  { id:"items",        label:"Items",        color:"#ffd54f" },
+  { id:"enemies",      label:"Enemies",      color:"#e57373" },
+  { id:"quests",       label:"Quests",       color:"#ba68c8" },
+  { id:"other",        label:"Other",        color:"#90a4ae" },
+  { id:"resources",    label:"Resources",    color:"#ffb74d" },
 ];
 const HEADER_BY_ID = Object.fromEntries(HEADERS.map(h=>[h.id,h]));
 
 /* Resource spawners were misclassified as monster spawns; map each to its real group. */
 const SPAWNER_TARGET = { Stone:"ore", Onion:"gather", Salvage:"gather", Flax:"gather",
-  "Swamp Weed":"gather", "Ash Logs":"gather", Toadflax:"gather", Snapdragon:"gather", Bone:"gather" };
+  "Swamp Weed":"gather", Toadflax:"gather", Snapdragon:"gather", Bone:"gather" };
 
-const ORE_LABELS = { Copper:"Copper Ore", Tin:"Tin Ore", Iron:"Iron Ore", Coal:"Coal",
-  Silver:"Silver Ore", Gold:"Gold Ore", Mithril:"Mithril Ore", Adamantite:"Adamantite Ore",
-  Runite:"Runite Ore", Blurite:"Blurite Ore", "Rune Essence":"Rune Essence", Stone:"Stone",
-  Sandstone:"Sandstone", Limestone:"Limestone", Gypsum:"Gypsum", Clay:"Clay" };
+const ORE_NODE_LABELS = { Copper:"Copper Ore Node", Tin:"Tin Ore Node", Iron:"Iron Ore Node",
+  Coal:"Coal Node", Silver:"Silver Ore Node", Gold:"Gold Ore Node", Mithril:"Mithril Ore Node",
+  Adamantite:"Adamantite Node", Runite:"Runite Deposit", Blurite:"Blurite Ore Node",
+  "Rune Essence":"Rune Essence Node", Stone:"Stone", Sandstone:"Sandstone Rock",
+  Limestone:"Limestone Rock", Gypsum:"Gypsum Node", Clay:"Clay Node" };
+const STONE_LABELS = { Granite:"Granite Deposit", Luminite:"Luminite Deposit",
+  "Soul Stone":"Soul Stone", "Dragon Tooth":"Dragon Tooth" };
 const ANIMA_LABELS = { Fire:"Fire Anima", Water:"Water Anima", Air:"Air Anima", Earth:"Earth Anima",
   Nature:"Nature Anima", Astral:"Astral Anima", Law:"Law Anima", "Anima-Infused Bark":"Anima-Infused Bark" };
 
@@ -154,6 +148,18 @@ function prettyMonster(cls){
   const m = cls.match(/^BP_SpawnPoint_(.+?)(_C)?$/);
   const name = m ? m[1].replace(/_\d+$/,"") : cls;
   return prettyCamel(name);
+}
+/* Wood types + herbs from class names. */
+function gatherLabel(p){
+  if(p.s) return p.s;
+  const n = p.n || "";
+  let m = n.match(/_Tree_([A-Za-z]+?)(?:_Bare)?_(\d+)_C$/);
+  if(m) return m[1] + " Tree T" + parseInt(m[2],10);
+  m = n.match(/^BP_([A-Za-z]+)Bush_C$/);
+  if(m) return m[1] + " Bush";
+  m = n.match(/^BP_ThornyRoot_([A-Za-z]+)_C$/);
+  if(m) return m[1];
+  return "Gatherable";
 }
 /* Extra-specific labels derived from class names for vague buckets. */
 function detailLabel(p){
@@ -170,8 +176,8 @@ function detailLabel(p){
       return "Chest";
     }
     case "fishing":
-      if(/_Net/.test(n)) return "Net Fishing";
-      if(/_Rod/.test(n)) return "Rod Fishing";
+      if(/_Net/.test(n)) return "Net Fishing Spot";
+      if(/_Rod/.test(n)) return "Rod Fishing Spot";
       return "Fishing Spot";
     case "agility":
       m = n.match(/BP_Trap_([A-Za-z]+?)_Agility/);
@@ -196,72 +202,97 @@ function detailLabel(p){
       if(/AnimaOrbDispenser/.test(n)) return "Anima Orb Dispenser";
       if(/Animal/.test(n)) return "Animal Resource";
       return null;
-    case "lore": return "Lore Item";
+    case "lore": return "Lore Scrap";
     default: return null;
   }
 }
-function itemLabel(cat, sub){
-  if(cat==="ore") return ORE_LABELS[sub] || sub;
-  if(cat==="anima") return ANIMA_LABELS[sub] || (sub==="Other" ? "Unknown Anima" : sub);
-  if(sub==="Other") return OTHER_LABELS[cat] || "Other";
-  return sub;
-}
-/* Categories where the subcategory is noise: one group with a fixed label. */
-const SINGLE_GROUP = { npc:"NPC / Quest Object", lore:"Lore", lodestone:"Lodestone" };
-const OTHER_LABELS = { gather:"Gatherable", chest:"Chest", fishing:"Fishing Spot",
-  shrine:"Shrine / Altar", agility:"Agility Course", stone:"Other", ore:"Other",
-  anima:"Other", respawn:"Bed", grave:"Gravestone", monster:"Other" };
-/* Derive a specific label for gatherables: wood types and herbs come from class names. */
-function gatherLabel(p){
-  if(p.s) return itemLabel("gather", p.s);
-  const n = p.n || "";
-  let m = n.match(/_Tree_([A-Za-z]+?)(?:_Bare)?_(\d+)_C$/);
-  if(m) return m[1] + " Tree T" + parseInt(m[2],10);   // Ash/Oak/Maple/Willow Tree T1..
-  m = n.match(/^BP_([A-Za-z]+)Bush_C$/);
-  if(m) return m[1] + " Bush";                    // Dwellberry/Redberry Bush
-  m = n.match(/^BP_ThornyRoot_([A-Za-z]+)_C$/);
-  if(m) return m[1];                              // Irit
-  return OTHER_LABELS.gather;
-}
-/* Assign every POI to a specific filter group: {h (header id), gkey, label}. */
+
+/* Every POI -> {h: header id, gkey, label, color}. */
 function groupOf(p){
-  if(p.c==="spawn"){                       // resource spawner -> real resource group
+  const c = p.c, n = p.n || "";
+  // ENEMIES — specific monster spawns (kept as-is, per user request)
+  if(c==="respawn" && n.includes("SpawnPoint")){
+    const name = prettyMonster(n);
+    return { h:"enemies", gkey:"enemies::"+name, label:name, color:"#e57373" };
+  }
+  // QUESTS — primary vs secondary, from class names
+  if(c==="npc"){
+    if(/MainQuest/i.test(n)) return { h:"quests", gkey:"quests::Primary", label:"Primary Quest", color:"#ba68c8" };
+    if(/Quest/i.test(n))     return { h:"quests", gkey:"quests::Secondary", label:"Secondary Quest", color:"#ba68c8" };
+    return { h:"other", gkey:"other::NPC", label:"NPC", color:"#90a4ae" };
+  }
+  if(c==="respawn") // graveyards (spawn points handled above)
+    return { h:"locations", gkey:"locations::Graveyard", label:"Graveyard", color:"#81c784" };
+  if(c==="grave")
+    return { h:"locations", gkey:"locations::Graveyard", label:"Graveyard", color:"#e57373" };
+  // RESOURCES — resource spawners merged into their resource type
+  if(c==="spawn"){
     const sub = p.s || "Other";
-    const cat = SPAWNER_TARGET[sub] || "gather";
-    return { h:cat, gkey:cat+"::"+sub, label:itemLabel(cat,sub) };
+    if(sub==="Stone")      return { h:"resources", gkey:"resources::Stone", label:"Stone", color:"#ffb74d" };
+    const gl = sub==="Other" ? "Gatherable" : sub;
+    return { h:"resources", gkey:"resources::"+gl, label:gl, color:"#9ccc65" };
   }
-  if(p.c==="gather"){
+  if(c==="gather"){
     const label = gatherLabel(p);
-    return { h:"gather", gkey:"gather::"+label, label };
+    return { h:"resources", gkey:"resources::"+label, label, color:"#9ccc65" };
   }
-  if(p.c==="respawn"){
-    if(p.n.includes("SpawnPoint")){
-      const name = prettyMonster(p.n);
-      return { h:"monster", gkey:"monster::"+name, label:name };
-    }
-    if((p.s||"")==="Graveyard") return { h:"grave", gkey:"grave::Graveyard", label:"Graveyard" };
-    return { h:"respawn", gkey:"respawn::"+(p.s||"Other"), label:p.s||"Bed" };
+  if(c==="ore"){
+    const sub = p.s || "Other";
+    const label = ORE_NODE_LABELS[sub] || sub;
+    return { h:"resources", gkey:"resources::"+label, label, color:"#ffb74d" };
   }
-  const sub = p.s || "Other";
-  if(SINGLE_GROUP[p.c]) return { h:p.c, gkey:p.c+"::x", label:SINGLE_GROUP[p.c] };
-  const detail = detailLabel(p);
-  if(detail) return { h:p.c, gkey:p.c+"::"+detail, label:detail };
-  return { h:p.c, gkey:p.c+"::"+sub, label:itemLabel(p.c,sub) };
+  if(c==="anima"){
+    const label = detailLabel(p) || ANIMA_LABELS[p.s] || (p.s ? p.s : "Unknown Anima");
+    return { h:"resources", gkey:"resources::"+label, label, color:"#b388ff" };
+  }
+  if(c==="stone"){
+    const sub = p.s || "Other";
+    const label = STONE_LABELS[sub] || sub;
+    return { h:"resources", gkey:"resources::"+label, label, color:"#a1887f" };
+  }
+  if(c==="geyser")
+    return { h:"resources", gkey:"resources::Rune Geyser", label:"Rune Geyser", color:"#80deea" };
+  // ITEMS
+  if(c==="chest"){
+    const label = detailLabel(p);
+    return { h:"items", gkey:"items::"+label, label, color:"#ffd54f" };
+  }
+  // LOCATIONS
+  if(c==="teleporter"){
+    const label = detailLabel(p);
+    return { h:"locations", gkey:"locations::"+label, label, color:"#4fc3f7" };
+  }
+  if(c==="lodestone")
+    return { h:"locations", gkey:"locations::Lodestone", label:"Lodestone", color:"#4fc3f7" };
+  if(c==="shrine"){
+    const label = detailLabel(p);
+    return { h:"locations", gkey:"locations::"+label, label, color:"#ff8a65" };
+  }
+  if(c==="agility"){
+    const label = detailLabel(p);
+    return { h:"locations", gkey:"locations::"+label, label, color:"#aed581" };
+  }
+  // OTHER
+  if(c==="fishing"){
+    const label = detailLabel(p);
+    return { h:"other", gkey:"other::"+label, label, color:"#4db6ac" };
+  }
+  return null;
 }
 
 const map = L.map("map", { crs:L.CRS.Simple, renderer:L.canvas(), zoomControl:true,
                            attributionControl:false, minZoom:-10, maxZoom:3 });
 let overlay = null, currentLayer = "overworld";
 let POIS = [];
-let groupLayers = {};        // gkey -> L.layerGroup
+let groupLayers = {};        // gkey -> {lg, color}
 let visibleGroups = new Set();
-let collapsed = new Set(["monster"]);  // monster list is huge; start collapsed
+let collapsed = new Set(["enemies"]);  // monster list is huge; start collapsed
 let searchText = "";
 let filterSearch = "";
 let showOffmap = false;
 
 function inBounds(p){
-  if(showOffmap) return true;   // user opted into distant-island/vault markers
+  if(showOffmap) return true;
   const b = LAYERS[currentLayer].bounds;
   const lat = -p.y, lng = p.x;
   return lat>=b[0][0] && lat<=b[1][0] && lng>=b[0][1] && lng<=b[1][1];
@@ -293,12 +324,13 @@ function matches(p, g){
 }
 /* Groups present on the current layer (in-bounds), with live counts. */
 function layerGroups(){
-  const groups = new Map(); // gkey -> {h,label,count}
+  const groups = new Map(); // gkey -> {h,label,color,count}
   for(const p of POIS){
     if(p.l!==currentLayer || !inBounds(p)) continue;
     const g = groupOf(p);
+    if(!g) continue;
     let e = groups.get(g.gkey);
-    if(!e){ e = { h:g.h, label:g.label, count:0 }; groups.set(g.gkey, e); }
+    if(!e){ e = { h:g.h, label:g.label, color:g.color, count:0 }; groups.set(g.gkey, e); }
     e.count++;
   }
   return groups;
@@ -307,31 +339,28 @@ function rebuildMarkers(){
   const groups = layerGroups();
   let shown = 0;
   for(const [gkey, g] of groups){
-    let lg = groupLayers[gkey];
-    if(lg){ lg.clearLayers(); map.removeLayer(lg); }
-    lg = L.layerGroup(); groupLayers[gkey] = lg;
+    let rec = groupLayers[gkey];
+    if(rec){ rec.lg.clearLayers(); map.removeLayer(rec.lg); }
+    const lg = L.layerGroup(); groupLayers[gkey] = { lg, color:g.color };
     if(visibleGroups.has(gkey)){
-      const h = HEADER_BY_ID[g.h];
       for(const p of POIS){
         if(p.l!==currentLayer || !inBounds(p)) continue;
         const pg = groupOf(p);
-        if(pg.gkey!==gkey || !matches(p, pg)) continue;
-        L.circleMarker([-p.y, p.x], { radius:5, weight:1, color:h.color,
-            fillColor:h.color, fillOpacity:0.75 })
+        if(!pg || pg.gkey!==gkey || !matches(p, pg)) continue;
+        L.circleMarker([-p.y, p.x], { radius:5, weight:1, color:g.color,
+            fillColor:g.color, fillOpacity:0.75 })
           .bindPopup(popupHtml(p, pg)).addTo(lg);
         shown++;
       }
       lg.addTo(map);
     }
   }
-  // drop layerGroups for groups no longer present
-  for(const k of Object.keys(groupLayers)) if(!groups.has(k)){ map.removeLayer(groupLayers[k]); delete groupLayers[k]; }
+  for(const k of Object.keys(groupLayers)) if(!groups.has(k)){ map.removeLayer(groupLayers[k].lg); delete groupLayers[k]; }
   document.getElementById("count-line").textContent =
     shown.toLocaleString()+" locations shown · "+LAYERS[currentLayer].label;
 }
 function buildFilterPanel(){
   const groups = layerGroups();
-  // organize under headers, items sorted by count desc
   const byHeader = new Map();
   for(const [gkey, g] of groups){
     if(!byHeader.has(g.h)) byHeader.set(g.h, []);
@@ -343,7 +372,6 @@ function buildFilterPanel(){
   for(const h of HEADERS){
     const items = byHeader.get(h.id);
     if(!items || !items.length) continue;
-    // filter-search: show only matching headers/items
     let shown = items;
     if(filterSearch){
       const hMatch = h.label.toLowerCase().includes(filterSearch);
@@ -367,6 +395,7 @@ function buildFilterPanel(){
       const row = document.createElement("label");
       row.className = "cat";
       row.innerHTML = `<input type="checkbox" ${visibleGroups.has(it.gkey)?"checked":""}>`+
+        `<span class="cdot" style="background:${it.color}"></span>`+
         `<span class="lbl">${escapeHtml(it.label)}</span><span class="n">${it.count.toLocaleString()}</span>`;
       row.querySelector("input").addEventListener("change", e=>{
         e.target.checked ? visibleGroups.add(it.gkey) : visibleGroups.delete(it.gkey);
@@ -431,9 +460,8 @@ document.getElementById("filter-search").addEventListener("input", e=>{
 fetch("data/pois.json").then(r=>r.json()).then(pois=>{
   // Ash Logs spawners removed per user request (redundant with tree locations).
   POIS = pois.filter(p => p.s !== "Ash Logs");
-  // default: every group visible
   const seen = new Set();
-  for(const p of POIS){ const g = groupOf(p); if(!seen.has(g.gkey)){ seen.add(g.gkey); visibleGroups.add(g.gkey); } }
+  for(const p of POIS){ const g = groupOf(p); if(g && !seen.has(g.gkey)){ seen.add(g.gkey); visibleGroups.add(g.gkey); } }
   setLayer("overworld");
 }).catch(err=>{
   document.getElementById("count-line").textContent = "Failed to load map data.";
