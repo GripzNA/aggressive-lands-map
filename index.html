@@ -159,12 +159,28 @@ const SINGLE_GROUP = { npc:"NPC / Quest Object", lore:"Lore",
 const OTHER_LABELS = { gather:"Gatherable", chest:"Chest", fishing:"Fishing Spot",
   shrine:"Shrine / Altar", agility:"Agility Course", stone:"Other", ore:"Other",
   anima:"Other", respawn:"Bed", grave:"Gravestone", monster:"Other" };
+/* Derive a specific label for gatherables: wood types and herbs come from class names. */
+function gatherLabel(p){
+  if(p.s) return itemLabel("gather", p.s);
+  const n = p.n || "";
+  let m = n.match(/_Tree_([A-Za-z]+)/);
+  if(m) return m[1] + " Tree";                    // Ash/Oak/Maple/Willow Tree
+  m = n.match(/^BP_([A-Za-z]+)Bush_C$/);
+  if(m) return m[1] + " Bush";                    // Dwellberry/Redberry Bush
+  m = n.match(/^BP_ThornyRoot_([A-Za-z]+)_C$/);
+  if(m) return m[1];                              // Irit
+  return OTHER_LABELS.gather;
+}
 /* Assign every POI to a specific filter group: {h (header id), gkey, label}. */
 function groupOf(p){
   if(p.c==="spawn"){                       // resource spawner -> real resource group
     const sub = p.s || "Other";
     const cat = SPAWNER_TARGET[sub] || "gather";
     return { h:cat, gkey:cat+"::"+sub, label:itemLabel(cat,sub) };
+  }
+  if(p.c==="gather"){
+    const label = gatherLabel(p);
+    return { h:"gather", gkey:"gather::"+label, label };
   }
   if(p.c==="respawn"){
     if(p.n.includes("SpawnPoint")){
