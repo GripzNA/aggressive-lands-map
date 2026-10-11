@@ -85,6 +85,9 @@
       <div class="search-row">
         <input id="search" type="search" placeholder="Search markers…" autocomplete="off">
       </div>
+      <div class="search-row">
+        <input id="filter-search" type="search" placeholder="Find a filter…" autocomplete="off">
+      </div>
       <div class="row-btns">
         <button id="show-all" class="btn">Show all</button>
         <button id="hide-all" class="btn">Hide all</button>
@@ -141,11 +144,58 @@ const ORE_LABELS = { Copper:"Copper Ore", Tin:"Tin Ore", Iron:"Iron Ore", Coal:"
 const ANIMA_LABELS = { Fire:"Fire Anima", Water:"Water Anima", Air:"Air Anima", Earth:"Earth Anima",
   Nature:"Nature Anima", Astral:"Astral Anima", Law:"Law Anima", "Anima-Infused Bark":"Anima-Infused Bark" };
 
+function prettyCamel(s){
+  return String(s).replace(/_/g," ").replace(/([a-z0-9])([A-Z])/g,"$1 $2").replace(/\s+/g," ").trim();
+}
 function prettyMonster(cls){
-  let m = cls.match(/^BP_SpawnPoint_(.+?)(_C)?$/);
-  let name = m ? m[1] : cls;
-  name = name.replace(/_\d+$/,"").replace(/_/g," ").replace(/([a-z0-9])([A-Z])/g,"$1 $2");
-  return name.replace(/\s+/g," ").trim();
+  const m = cls.match(/^BP_SpawnPoint_(.+?)(_C)?$/);
+  const name = m ? m[1].replace(/_\d+$/,"") : cls;
+  return prettyCamel(name);
+}
+/* Extra-specific labels derived from class names for vague buckets. */
+function detailLabel(p){
+  const n = p.n || "";
+  let m;
+  switch(p.c){
+    case "chest": {
+      m = n.match(/Tier(\d)/);
+      const tier = m ? "Tier "+m[1]+" " : "";
+      if(/BuriedChest/.test(n)) return tier+"Buried Chest";
+      if(/RaidChest/.test(n)) return tier+"Raid Chest";
+      if(/LootChest/.test(n)) return tier+"Chest";
+      if(/PersonalChest/.test(n)) return "Personal Chest";
+      return "Chest";
+    }
+    case "fishing":
+      if(/_Net/.test(n)) return "Net Fishing";
+      if(/_Rod/.test(n)) return "Rod Fishing";
+      return "Fishing Spot";
+    case "agility":
+      m = n.match(/BP_Trap_([A-Za-z]+?)_Agility/);
+      if(m) return prettyCamel(m[1])+" Trap";
+      if(/MovingPlatform/.test(n)) return "Moving Platform";
+      if(/CourseStarter/.test(n)) return "Course Start";
+      if(/KebbitBurrow/.test(n)) return "Kebbit Burrow";
+      return "Agility";
+    case "teleporter":
+      if(/VautEntrance/.test(n)) return /Locked/.test(n) ? "Vault Entrance (Locked)" : "Vault Entrance";
+      if(/Spectral/.test(n)) return "Spectral Door";
+      if(/NightmareCrucible/.test(n)) return "Nightmare Crucible Exit";
+      if(/RequiresQuestStep/.test(n)) return "Quest Teleporter";
+      if(/Locked/.test(n)) return "Locked Teleporter";
+      return "Teleporter";
+    case "shrine":
+      if(/HealthShrine/.test(n)) return "Health Shrine";
+      if(/BossAltar/.test(n)) return "Boss Altar";
+      return "Shrine / Altar";
+    case "anima":
+      if(/AnimaChargePipe/.test(n)) return "Anima Pipe";
+      if(/AnimaOrbDispenser/.test(n)) return "Anima Orb Dispenser";
+      if(/Animal/.test(n)) return "Animal Resource";
+      return null;
+    case "lore": return "Lore Item";
+    default: return null;
+  }
 }
 function itemLabel(cat, sub){
   if(cat==="ore") return ORE_LABELS[sub] || sub;
@@ -154,8 +204,7 @@ function itemLabel(cat, sub){
   return sub;
 }
 /* Categories where the subcategory is noise: one group with a fixed label. */
-const SINGLE_GROUP = { npc:"NPC / Quest Object", lore:"Lore",
-  teleporter:"Portal / Entrance", lodestone:"Lodestone" };
+const SINGLE_GROUP = { npc:"NPC / Quest Object", lore:"Lore", lodestone:"Lodestone" };
 const OTHER_LABELS = { gather:"Gatherable", chest:"Chest", fishing:"Fishing Spot",
   shrine:"Shrine / Altar", agility:"Agility Course", stone:"Other", ore:"Other",
   anima:"Other", respawn:"Bed", grave:"Gravestone", monster:"Other" };
@@ -192,6 +241,8 @@ function groupOf(p){
   }
   const sub = p.s || "Other";
   if(SINGLE_GROUP[p.c]) return { h:p.c, gkey:p.c+"::x", label:SINGLE_GROUP[p.c] };
+  const detail = detailLabel(p);
+  if(detail) return { h:p.c, gkey:p.c+"::"+detail, label:detail };
   return { h:p.c, gkey:p.c+"::"+sub, label:itemLabel(p.c,sub) };
 }
 
@@ -203,6 +254,7 @@ let groupLayers = {};        // gkey -> L.layerGroup
 let visibleGroups = new Set();
 let collapsed = new Set(["monster"]);  // monster list is huge; start collapsed
 let searchText = "";
+let filterSearch = "";
 
 function inBounds(p){
   const b = LAYERS[currentLayer].bounds;
@@ -286,8 +338,15 @@ function buildFilterPanel(){
   for(const h of HEADERS){
     const items = byHeader.get(h.id);
     if(!items || !items.length) continue;
+    // filter-search: show only matching headers/items
+    let shown = items;
+    if(filterSearch){
+      const hMatch = h.label.toLowerCase().includes(filterSearch);
+      shown = items.filter(it => hMatch || it.label.toLowerCase().includes(filterSearch));
+      if(!shown.length) continue;
+    }
     const total = items.reduce((s,i)=>s+i.count,0);
-    const isClosed = collapsed.has(h.id);
+    const isClosed = filterSearch ? false : collapsed.has(h.id);
     const head = document.createElement("div");
     head.className = "ghead"+(isClosed?" closed":"");
     head.innerHTML = `<span class="arrow">▼</span><span class="cdot" style="background:${h.color}"></span>`+
@@ -299,7 +358,7 @@ function buildFilterPanel(){
     list.appendChild(head);
     const wrap = document.createElement("div");
     wrap.className = "gitems";
-    for(const it of items){
+    for(const it of shown){
       const row = document.createElement("label");
       row.className = "cat";
       row.innerHTML = `<input type="checkbox" ${visibleGroups.has(it.gkey)?"checked":""}>`+
@@ -353,6 +412,11 @@ let searchTimer=null;
 document.getElementById("search").addEventListener("input", e=>{
   clearTimeout(searchTimer);
   searchTimer=setTimeout(()=>{ searchText=e.target.value.trim().toLowerCase(); rebuildMarkers(); },250);
+});
+let fsearchTimer=null;
+document.getElementById("filter-search").addEventListener("input", e=>{
+  clearTimeout(fsearchTimer);
+  fsearchTimer=setTimeout(()=>{ filterSearch=e.target.value.trim().toLowerCase(); buildFilterPanel(); },200);
 });
 
 fetch("data/pois.json").then(r=>r.json()).then(pois=>{
