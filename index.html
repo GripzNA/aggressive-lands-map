@@ -459,10 +459,12 @@ document.getElementById("filter-search").addEventListener("input", e=>{
 
 fetch("data/pois.json").then(r=>r.json()).then(pois=>{
   // Ash Logs spawners removed per user request (redundant with tree locations).
+  // Traps removed per user request (agility course obstacles, not useful markers).
   // Collapse stacked duplicates: one marker per filter group per location.
   const seenLoc = new Set();
   POIS = pois.filter(p => {
     if(p.s === "Ash Logs") return false;
+    if((p.n || "").includes("Trap")) return false;
     const g = groupOf(p);
     const key = p.x+","+p.y+","+p.l+","+(g ? g.gkey : "?");
     if(seenLoc.has(key)) return false;
