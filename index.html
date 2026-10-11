@@ -459,7 +459,16 @@ document.getElementById("filter-search").addEventListener("input", e=>{
 
 fetch("data/pois.json").then(r=>r.json()).then(pois=>{
   // Ash Logs spawners removed per user request (redundant with tree locations).
-  POIS = pois.filter(p => p.s !== "Ash Logs");
+  // Collapse stacked duplicates: one marker per filter group per location.
+  const seenLoc = new Set();
+  POIS = pois.filter(p => {
+    if(p.s === "Ash Logs") return false;
+    const g = groupOf(p);
+    const key = p.x+","+p.y+","+p.l+","+(g ? g.gkey : "?");
+    if(seenLoc.has(key)) return false;
+    seenLoc.add(key);
+    return true;
+  });
   const seen = new Set();
   for(const p of POIS){ const g = groupOf(p); if(g && !seen.has(g.gkey)){ seen.add(g.gkey); visibleGroups.add(g.gkey); } }
   setLayer("overworld");
