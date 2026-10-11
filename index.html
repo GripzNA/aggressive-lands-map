@@ -212,8 +212,8 @@ const OTHER_LABELS = { gather:"Gatherable", chest:"Chest", fishing:"Fishing Spot
 function gatherLabel(p){
   if(p.s) return itemLabel("gather", p.s);
   const n = p.n || "";
-  let m = n.match(/_Tree_([A-Za-z]+)/);
-  if(m) return m[1] + " Tree";                    // Ash/Oak/Maple/Willow Tree
+  let m = n.match(/_Tree_([A-Za-z]+?)(?:_Bare)?_(\d+)_C$/);
+  if(m) return m[1] + " Tree T" + parseInt(m[2],10);   // Ash/Oak/Maple/Willow Tree T1..
   m = n.match(/^BP_([A-Za-z]+)Bush_C$/);
   if(m) return m[1] + " Bush";                    // Dwellberry/Redberry Bush
   m = n.match(/^BP_ThornyRoot_([A-Za-z]+)_C$/);
@@ -420,7 +420,8 @@ document.getElementById("filter-search").addEventListener("input", e=>{
 });
 
 fetch("data/pois.json").then(r=>r.json()).then(pois=>{
-  POIS = pois;
+  // Ash Logs spawners removed per user request (redundant with tree locations).
+  POIS = pois.filter(p => p.s !== "Ash Logs");
   // default: every group visible
   const seen = new Set();
   for(const p of POIS){ const g = groupOf(p); if(!seen.has(g.gkey)){ seen.add(g.gkey); visibleGroups.add(g.gkey); } }
