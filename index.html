@@ -105,6 +105,15 @@
   .leaflet-popup-content .p-raw{color:var(--muted);font-size:11px;word-break:break-all;opacity:.8}
   .leaflet-popup-content .p-co{color:var(--muted);font-size:11px;margin-top:5px;font-variant-numeric:tabular-nums}
 
+  /* ---------- live players ---------- */
+  .player-wrap{background:none;border:none}
+  .player-dot{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.55);position:relative}
+  .player-dot::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:2px solid var(--accent);animation:pping 1.8s ease-out infinite}
+  @keyframes pping{0%{transform:scale(.55);opacity:.9}100%{transform:scale(1.9);opacity:0}}
+  .player-label{background:rgba(12,17,24,.88);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;box-shadow:var(--shadow)}
+  .leaflet-tooltip-top.player-label::before{display:none}
+  body.light .player-label{background:rgba(255,255,255,.93)}
+
   /* ---------- loading ---------- */
   #loading{position:absolute;inset:0;z-index:1100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--bg);transition:opacity .3s}
   #loading.done{opacity:0;pointer-events:none}
@@ -181,6 +190,7 @@
       </div>
       <div id="count-line">Loading…</div>
       <label class="offmap-row" title="Show markers outside the map image (distant islands, vault interiors)"><input type="checkbox" id="offmap"> Show off-map locations</label>
+      <label class="offmap-row" title="Show live player positions on the map (when the bot publishes them)"><input type="checkbox" id="showplayers" checked> Show live player markers</label>
     </div>
     <div id="cat-list"></div>
   </aside>
@@ -375,6 +385,8 @@ let collapsed = new Set(["enemies"]);  // monster list is huge; start collapsed
 let searchText = "";
 let filterSearch = "";
 let showOffmap = false;
+let showPlayers = true;
+const playerLayer = L.layerGroup().addTo(map);
 
 function inBounds(p){
   if(showOffmap) return true;
@@ -443,6 +455,29 @@ function rebuildMarkers(){
   for(const k of Object.keys(groupLayers)) if(!groups.has(k)){ map.removeLayer(groupLayers[k].lg); delete groupLayers[k]; }
   document.getElementById("count-line").textContent =
     shown.toLocaleString()+" locations shown · "+LAYERS[currentLayer].label;
+  renderPlayers(lastGood);
+}
+/* Live player dots. Positions come from the bot via the gist (same
+   centimeter convention as POIs); nothing renders until data exists. */
+function renderPlayers(data){
+  playerLayer.clearLayers();
+  if(!showPlayers || !data || !Array.isArray(data.positions)) return;
+  const b = LAYERS[currentLayer].bounds;
+  for(const pl of data.positions){
+    const x = +pl.x, y = +pl.y;
+    if(!isFinite(x) || !isFinite(y)) continue;
+    const lat = -y, lng = x;
+    if(!showOffmap && (lat<b[0][0] || lat>b[1][0] || lng<b[0][1] || lng>b[1][1])) continue;
+    const name = String(pl.name || "Player");
+    const icon = L.divIcon({ className:"player-wrap",
+      html:`<div class="player-dot"></div>`, iconSize:[16,16], iconAnchor:[8,8] });
+    L.marker([lat,lng], { icon, zIndexOffset:1000, title:name })
+      .bindTooltip(escapeHtml(name), { permanent:true, direction:"top",
+        offset:[0,-10], className:"player-label", opacity:1 })
+      .bindPopup(`<div class="p-title"><span>${escapeHtml(name)}</span></div>`+
+                 `<div class="p-sub">Live player</div>`)
+      .addTo(playerLayer);
+  }
 }
 function buildFilterPanel(){
   const groups = layerGroups();
@@ -517,6 +552,7 @@ async function refreshCount(){
     lastGood = data;
     txt.textContent = `${data.players} / ${data.max} players online`;
     pill.className = "pill";
+    renderPlayers(data);
   }catch(e){
     if(lastGood){
       txt.textContent = `${lastGood.players} / ${lastGood.max} players online`;
@@ -542,6 +578,10 @@ document.getElementById("scrim").addEventListener("click", ()=>setDrawer(false))
 document.getElementById("offmap").addEventListener("change", e=>{
   showOffmap = e.target.checked;
   buildFilterPanel(); rebuildMarkers();
+});
+document.getElementById("showplayers").addEventListener("change", e=>{
+  showPlayers = e.target.checked;
+  renderPlayers(lastGood);
 });
 document.getElementById("show-all").addEventListener("click", ()=>{
   for(const k of layerGroups().keys()) visibleGroups.add(k);
