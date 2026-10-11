@@ -102,7 +102,7 @@ const LAYERS = {
 };
 
 const map = L.map("map", { crs:L.CRS.Simple, renderer:L.canvas(), zoomControl:true,
-                           attributionControl:false, minZoom:-4, maxZoom:2 });
+                           attributionControl:false, minZoom:-10, maxZoom:3 });
 let overlay = null, currentLayer = "overworld";
 let POIS = [], CATS = [];
 let catGroups = {};          // catId -> L.layerGroup
